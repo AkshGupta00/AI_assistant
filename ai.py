@@ -37,7 +37,7 @@ class AI():
             audio = self.r.listen(source)
         print("got it")
         try:
-            phrase = self.r.recognize_google(audio,show_all=False,language="engb")
+            phrase = self.r.recognize_google(audio,show_all=False,language="engb").lower()
             sentence = "got it ,you said"+phrase
             self.engin.say(sentence)
             self.engin.runAndWait()
