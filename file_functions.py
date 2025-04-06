@@ -5,7 +5,7 @@ import glob
 import send2trash
 import shutil
 import difflib
-
+import sqlite3
 
 
 nlp = spacy.load("en_core_web_sm")
@@ -41,9 +41,9 @@ def extract_folder(text):
     return match[0] if match else None
 
 def search_file(directory, filename):
-    """Search for a file by name (without extension) in a directory."""
-    search_pattern = os.path.join(directory, f"{filename}.*")  # Match any extension
-    matching_files = glob.glob(search_pattern)  # Find all matching files
+    """Search recursively for exact filename (without extension)."""
+    search_pattern = os.path.join(directory, '**', f"{filename}.*")
+    matching_files = glob.glob(search_pattern, recursive=True)
     return matching_files if matching_files else None
 
 def search_path(folder_name):
@@ -77,7 +77,7 @@ def intent_detection(command):
     doc = nlp(command)
 
     intents = {
-        "open": ["open", "find and open","access","load","show","display","retrieve","let me see"],
+        "open": ["open", "find and open", "access", "load", "show", "display", "retrieve", "let me see"],
         "search": ["find", "locate", "search"],
         "create": ["create", "make", "new file"],
         "rename": ["rename", "change name"],
@@ -89,19 +89,20 @@ def intent_detection(command):
         "storage": ["storage", "disk space", "free space", "disk usage"]
     }
 
-    # First check for exact multi-word phrases
+    # Check multi-word phrases
     for intent, phrases in intents.items():
         for phrase in phrases:
             if phrase in command:
                 return intent
 
-    # Check individual words
+    # Check individual lemmatized words
     for token in doc:
         for intent, words in intents.items():
-            if token.lemma_ in words:
+            if token.lemma_ in set(words):
                 return intent
 
     return None
+
 
 def process_command(command):
     """Process user input and determine the action to perform."""
@@ -143,8 +144,9 @@ def file_create(file_name,filepath):
     file_path_absolute = filepath + "\\" + file_name
     try:
         file = open(file_path_absolute,'x')
+        return True,f"file created at {file_path_absolute}"
     except FileExistsError as e:
-        return f"An error occurred: {e}"
+        return False,f"An error occurred: {e}"
     
 def rename_file(old_file_name,new_file_name,file_path):
     """rename the file from old_file_name to new_file_name at the file_path"""
@@ -152,13 +154,13 @@ def rename_file(old_file_name,new_file_name,file_path):
         old_file_path_absolute = file_path + "\\" + old_file_name
         new_file_path_absolute = file_path + "\\" + new_file_name
         os.rename(old_file_path_absolute, new_file_path_absolute)
-        return "File renamed successfully."
+        return True,"File renamed successfully."
     except FileNotFoundError:
-        return "File not found."
+        return False,"File not found."
     except PermissionError:
-        return "Permission denied."
+        return False,"Permission denied."
     except Exception as e:
-        return f"An error occurred: {e}"
+        return False,f"An error occurred: {e}"
 
 def move_file(file_name,old_file_path,new_file_path):
     """moves file from old_file_path to new_file_path"""
@@ -166,16 +168,16 @@ def move_file(file_name,old_file_path,new_file_path):
         old_file_path_absolute = old_file_path + "\\" + file_name
         new_file_path_absolute = new_file_path + "\\" + file_name
         os.replace(old_file_path_absolute,new_file_path_absolute)
-        return "File moved succesfully"
+        return True,"File moved succesfully"
     except FileNotFoundError:
-        return "File not found"
+        return False,"File not found"
     except PermissionError:
-        return "Permission denied"
+        return False,"Permission denied"
     except Exception as e:
-        return f"An error occurred: {e}"
+        return False,f"An error occurred: {e}"
         
 def copy_file(file_name,old_file_path,new_file_path,new_file_name=None):
-    """copyes a file from old_file_path to new_file_path and changes the copyed file name to new_file_name if want"""
+    """copies a file from old_file_path to new_file_path and changes the copyed file name to new_file_name if want"""
     try:
         if new_file_name:
             old_file_path_absolute = old_file_path + "\\" + file_name
@@ -185,22 +187,22 @@ def copy_file(file_name,old_file_path,new_file_path,new_file_name=None):
             new_file_path_absolute = new_file_path + "\\" + file_name
         cmd = "copy " + old_file_path_absolute + " " + new_file_path_absolute
         os.system(cmd)
-        return "File copyed succesfully"
+        return True,"File copyed succesfully"
     except FileNotFoundError:
-        return "File not found"
+        return False,"File not found"
     except PermissionError:
-        return "Permission denied"
+        return False,"Permission denied"
     except Exception as e:
-        return f"An error occurred: {e}"
+        return False,f"An error occurred: {e}"
 
 def delete_file(file_name,filepath):
     """moves file_name to recycle bin"""
     file_path_absolute = filepath + "\\" + file_name
     try:
         send2trash.send2trash(file_path_absolute)
-        return f"File '{file_name}' moved to trash successfully."
+        return True,f"File '{file_name}' moved to trash successfully."
     except FileNotFoundError as e:
-        return f"An error occurred: {e}"
+        return False,f"An error occurred: {e}"
 
 def compress_file(folder_path,compressed_file_name):
     """compress folder to compressed_file_name with extention '.zip'"""
@@ -214,9 +216,9 @@ def extract_file(compressed, output_folder):
     """extract '.zip' file to a output folder"""
     try:
         shutil.unpack_archive(compressed, output_folder)
-        return f"File'{compressed}' extracted successfully"
+        return True,f"File'{compressed}' extracted successfully"
     except Exception as e:
-        return f"An error occurred:'{e}'"
+        return False,f"An error occurred:'{e}'"
 
 def get_storage_usage(path="/"):
     """return storage usage for a particular drive in GB"""
@@ -230,81 +232,241 @@ def get_storage_usage(path="/"):
     except Exception as e:
         return f"An error occurred: {e}"
 
+# handlers return true,massage to print and (1,1,1,1) means file_name, file_ext, file_path or folder or both exist respectively 
+def handle_open(result):
+    filename = ''
+    if len(result["file"]) > 1:
+        for i in result["file"]:
+            if "." in i:
+                filename = i
+        if filename == "":
+            return False,"which type of file is it?",(1,0,1,1)
+    elif len(result["file"]) == 0:
+        return False,"what would be the name of the file?",(0,0,1,1)
+    else:
+        if "." in result["file"][0]:
+            filename = result["file"][0]
+        else:
+            return False,"which type of file is it?",(1,0,1,1)
 
-def command_execution(command):
+    if len(result["path"]) == 0:
+        if len(result["folder"]) == 0:
+            return False,f"where would be the {filename} file be at?",(1,1,0,0)
+        else:
+            file_path = search_path(result['folder']) + '\\' + filename
+    else:
+        if filename in result["path"][0]:
+            file_path = result["path"][0]
+        else:
+            file_path = result["path"][0] + '\\' + filename
+
+    flag, message = file_open(file_path)
+    if flag:
+        return True,message,(1,1,1,1)
+    else :
+        return False,message,(1,1,1,1)
+
+
+def handle_create(result):
+    filename = ''
+    if len(result["file"]) > 1:
+        for i in result["file"]:
+            if "." in i:
+                filename = i
+        if filename == "":
+            return False,"what type of file do you want to create?",(1,0,1,1)
+    elif len(result["file"]) == 0:
+        return False,"what should be the file name?",(0,0,1,1)
+    else:
+        if "." in result["file"][0]:
+            filename = result["file"][0]
+        else:
+            return False,"what type of file do you want to create?",(1,0,1,1)
+
+    if len(result["path"]) == 0:
+        if len(result["folder"]) == 0:
+            return False,f"where should I create the file '{filename}'?",(1,1,0,0)
+        else:
+            file_path = search_path(result['folder'])
+            if file_path:
+                flag, message = file_create(filename, file_path)
+                if flag:
+                    return True,message,(1,1,1,1)
+                else:
+                    return False, message, (1, 1, 1, 1)
+            else:
+                return False,"Could not recognize the folder.",(1,1,0,0)
+    else:
+        flag, message = file_create(filename, result["path"][0])
+        if flag:
+            return True,message,(1,1,1,1)
+        else:
+            return False, message, (1, 1, 1, 1)
+
+def handle_search(result):
+    if len(result["file"]) == 0:
+        return False, "What is the name of the file you're searching for?", (0, 0, 1 if result["path"] else 0, 1 if result["folder"] else 0)
+    flag, message = search_file(result['path'], result['file'])
+    return flag, message, (1, 1 if '.' in result['file'][0] else 0, 1 if result["path"] else 0, 1 if result["folder"] else 0)
+
+def handle_rename(result):
+    if len(result["file"]) < 2:
+        return False, "Please provide both the current file name and the new name.", (0, 0, 1 if result["path"] else 0, 1 if result["folder"] else 0)
+
+    old_file_name = result["file"][0]
+    new_file_name = result["file"][1]
+
+    if len(result["path"]) == 0:
+        if len(result["folder"]) == 0:
+            return False, f"Where is the file '{old_file_name}' located?", (1, 1 if "." in old_file_name else 0, 0, 0)
+        else:
+            file_path = search_path(result["folder"])
+            if file_path:
+                flag, message = rename_file(old_file_name, new_file_name, file_path)
+                return flag, message, (1, 1 if "." in old_file_name else 0, 1, 1)
+            else:
+                return False, "Could not recognize the folder.", (1, 1 if "." in old_file_name else 0, 0, 0)
+    else:
+        flag, message = rename_file(old_file_name, new_file_name, result["path"][0])
+        return flag, message, (1, 1 if "." in old_file_name else 0, 1, 1 if result["folder"] else 0)
+
+def handle_move(result):
+    if len(result["file"]) == 0:
+        return False, "What is the name of the file you want to move?", (0, 0, 1 if result["path"] else 0, 1 if result["folder"] else 0)
+
+    filename = result["file"][0]
+
+    if len(result["path"]) < 2:
+        if len(result["folder"]) < 2:
+            return False, "Please provide both the source and destination folders.", (1, 1 if "." in filename else 0, 0, 0)
+        else:
+            source_path = search_path(result["folder"][0])
+            destination_path = search_path(result["folder"][1])
+            if source_path and destination_path:
+                flag, message = move_file(filename, source_path, destination_path)
+                return flag, message, (1, 1 if "." in filename else 0, 1, 1)
+            else:
+                return False, "Could not recognize one or both folders.", (1, 1 if "." in filename else 0, 0, 0)
+    else:
+        flag, message = move_file(filename, result["path"][0], result["path"][1])
+        return flag, message, (1, 1 if "." in filename else 0, 1, 1 if result["folder"] else 0)
+
+def handle_copy(result):
+    if len(result["file"]) == 0:
+        return False, "What is the name of the file you want to copy?", (0, 0, 1 if result["path"] else 0, 1 if result["folder"] else 0)
+
+    filename = result["file"][0]
+
+    if len(result["path"]) < 2:
+        return False, "Please specify both the source and destination paths.", (1, 1 if "." in filename else 0, 0, 1 if result["folder"] else 0)
+
+    old_path = result["path"][0]
+    new_path = result["path"][1]
+
+    new_file_name = result["file"][1] if len(result["file"]) > 1 else None
+
+    flag, message = copy_file(filename, old_path, new_path, new_file_name)
+    return flag, message, (1, 1 if "." in filename else 0, 1, 1 if result["folder"] else 0)
+
+def handle_delete(result):
+    if len(result["file"]) == 0:
+        return False, "What is the name of the file you want to delete?", (0, 0, 1 if result["path"] else 0, 1 if result["folder"] else 0)
+
+    filename = result["file"][0]
+
+    if len(result["path"]) == 0:
+        if len(result["folder"]) == 0:
+            return False, f"Where is the file '{filename}' located?", (1, 1 if "." in filename else 0, 0, 0)
+        else:
+            file_path = search_path(result["folder"])
+            if file_path:
+                flag, message = delete_file(filename, file_path)
+                return flag, message, (1, 1 if "." in filename else 0, 1, 1)
+            else:
+                return False, "Could not recognize the folder.", (1, 1 if "." in filename else 0, 0, 0)
+    else:
+        flag, message = delete_file(filename, result["path"][0])
+        return flag, message, (1, 1 if "." in filename else 0, 1, 1 if result["folder"] else 0)
+
+def handle_compress(result):
+    if len(result["file"]) == 0:
+        return False, "What should be the name of the compressed file?", (0, 0, 1 if result["path"] else 0, 1 if result["folder"] else 0)
+
+    compressed_name = result["file"][0]
+
+    if len(result["path"]) == 0:
+        if len(result["folder"]) == 0:
+            return False, "Which folder do you want to compress?", (1, 1 if "." in compressed_name else 0, 0, 0)
+        else:
+            folder_path = search_path(result["folder"])
+            if folder_path:
+                flag, message = compress_file(folder_path, compressed_name)
+                return flag, message, (1, 1 if "." in compressed_name else 0, 1, 1)
+            else:
+                return False, "Could not recognize the folder to compress.", (1, 1 if "." in compressed_name else 0, 0, 0)
+    else:
+        flag, message = compress_file(result["path"][0], compressed_name)
+        return flag, message, (1, 1 if "." in compressed_name else 0, 1, 1 if result["folder"] else 0)
+
+def handle_extract(result):
+    if len(result["file"]) == 0:
+        return False, "What is the name of the compressed file you want to extract?", (0, 0, 1 if result["path"] else 0, 1 if result["folder"] else 0)
+
+    compressed_file = result["file"][0]
+
+    if len(result["path"]) == 0:
+        if len(result["folder"]) == 0:
+            return False, f"Where should I extract '{compressed_file}'?", (1, 1 if "." in compressed_file else 0, 0, 0)
+        else:
+            output_folder = search_path(result["folder"])
+            if output_folder:
+                flag, message = extract_file(compressed_file, output_folder)
+                return flag, message, (1, 1 if "." in compressed_file else 0, 1, 1)
+            else:
+                return False, "Could not recognize the target folder.", (1, 1 if "." in compressed_file else 0, 0, 0)
+    else:
+        flag, message = extract_file(compressed_file, result["path"][0])
+        return flag, message, (1, 1 if "." in compressed_file else 0, 1, 1 if result["folder"] else 0)
+
+def handle_storage(result):
+    if len(result["path"]) == 0:
+        if len(result["folder"]) == 0:
+            usage = get_storage_usage()
+            return True, usage, (0, 0, 0, 0)
+        else:
+            folder_path = search_path(result["folder"])
+            if folder_path:
+                usage = get_storage_usage(folder_path)
+                return True, usage, (0, 0, 1, 1)
+            else:
+                return False, "Could not recognize the folder.", (0, 0, 0, 0)
+    else:
+        usage = get_storage_usage(result["path"][0])
+        return True, usage, (0, 0, 1, 1 if result["folder"] else 0)
+
+def file_management_cmd_execution(command,cmd_id):
     result = process_command(command)
-    if result["intents"] == "open":
-        filename = ''
-        if len(result["file"]) > 1:
-            for i in result["file"]:
-                if "." in i:
-                    filename = i
-        elif len(result["file"]) == 0:
-            return "what would be the name of the file?"
-        else:
-            if "." in result["file"][0]:
-                filename = result["file"][0]
-            else:
-                return "which type of file is it?"
+    intent = result.get("intents")
 
-        if len(result["path"]) == 0 :
-            if len(result["folder"]) == 0:
-                return(f"where would be the {filename} file be at?")
-            else:
-                file_path = search_path(result['folder'])+'\\'+filename
-                flag,massage = file_open(file_path)
-                if flag:
-                    return massage
-                else:
-                    return massage
-        else:
-            if(filename in result["path"][0]):
-                flag,massage =file_open(result["path"][0])
-                if flag:
-                    return massage
-                else:
-                    return massage
-            else:
-                file_path = result['path'][0]+'\\'+filename
-                flag,massage = file_open(file_path)
-                if flag:
-                    return massage
-                else:
-                    return massage
-
-    elif result["intents"] == "search":
-        search_file(result['path'],result['file'])
-    elif result["intents"] == "create":
-        file_create(result['file'],result['path'])
-    elif result["intents"] == "rename":
-        rename_file(result["file"][0],result["file"][1],result["path"])
-    elif result["intents"] == "move":
-        move_file(result["file"],result['path'][0],result["path"][1])
-    elif result["intents"] == "delete":
-        delete_file(result["file"],result["path"])
-    elif result["intents"] == "compress":
-        compress_file(result["path"],result['file'])
-    elif result["intents"] == "extract":
-        extract_file(result["file"],result["path"])
-    elif result["intents"] == "storage":
-        if(result["path"]!=None):
-            get_storage_usage(result['path'])
-        else:
-            get_storage_usage()
+    if intent == "open":
+        return handle_open(result)
+    elif intent == "search":
+        return handle_search(result)
+    elif intent == "create":
+        return handle_create(result)
+    elif intent == "rename":
+        return handle_rename(result)
+    elif intent == "move":
+        return handle_move(result)
+    elif intent == "copy":
+        return handle_copy(result)
+    elif intent == "delete":
+        return handle_delete(result)
+    elif intent == "compress":
+        return handle_compress(result)
+    elif intent == "extract":
+        return handle_extract(result)
+    elif intent == "storage":
+        return handle_storage(result)
     else:
         return False
-
-# Example usage
-commands = [
-    "open filename.txt from Program file",
-    "open filename.txt from Program file (x86)",
-    "open filename.txt from Temp",
-    "open filename.txt from Public Desktop",
-    "open filename.txt from Public Documents",
-    "open filename.txt from Public Downloads",
-]
-
-for i in commands:
-    print(command_execution(i))
-
-    
