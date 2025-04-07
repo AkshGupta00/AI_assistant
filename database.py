@@ -45,11 +45,12 @@ def create_database():
             cmd_id INTEGER,
             intent_id INTEGER NOT NULL,
             file_name TEXT,
+            file_found TEXT,
             file_ext TEXT,
             file_path TEXT,
             folders TEXT,
             pro_comp INTEGER NOT NULL,
-            fail_reason TEXT,
+            message TEXT,
             FOREIGN KEY(cmd_id) REFERENCES commands(cmd_id),
             FOREIGN KEY(intent_id) REFERENCES file_intent(intent_id)
         )
@@ -78,21 +79,21 @@ def get_latest_cmd_id():
 
 
 #file cmd process database
-def filepush(cmd_id,intent,pro_comp,file_name = None,file_ext = None,file_path = None,folders = None ,fail_reason = None):
+def filepush(cmd_id,intent,pro_comp,file_name = None,file_found = None,file_path = None,folders = None ,message = None,file_ext = None):
     # Connect to SQLite database 
     conn = sqlite3.connect('my_database.db')
     
     # Create a cursor object using the cursor() method
     cursor = conn.cursor()
     if pro_comp == False:
-        cursor.execute("INSERT INTO file_cmd (cmd_id,intent,file_name,file_ext,file_path,folders,pro_comp,fail_reason) VALUES (?,?,?,?,?,?,?,?)",(cmd_id,intent,file_name,file_ext,file_path,folders,0,fail_reason))
+        cursor.execute("INSERT INTO file_cmd (cmd_id,intent_id,file_name,file_found,file_ext,file_path,folders,pro_comp,message) VALUES (?,?,?,?,?,?,?,?,?)",(cmd_id,intent,file_name,file_found,file_ext,file_path,folders,0,message))
     else:
-        cursor.execute("INSERT INTO file_cmd (cmd_id,intent,file_name,file_ext,file_path,folders,pro_comp,fail_reason) VALUES (?,?,?,?,?,?,?,?)",(cmd_id,intent,file_name,file_ext,file_path,folders,1,fail_reason))
+        cursor.execute("INSERT INTO file_cmd (cmd_id,intent_id,file_name,file_found,file_ext,file_path,folders,pro_comp,message) VALUES (?,?,?,?,?,?,?,?,?)",(cmd_id,intent,file_name,file_found,file_ext,file_path,folders,1,message))
      # Commit the changes and close the connection
     conn.commit()
     conn.close()
 
-def check_pre(n):
+def check_pre_file(n):
     # Connect to SQLite database 
     conn = sqlite3.connect('my_database.db')
     
@@ -104,5 +105,20 @@ def check_pre(n):
       # Close the connection
     conn.close()
     return rows
-if __name__ == "__main__":
-    create_database()
+def is_latest_cmd_type(cmd_type_id):
+    conn = sqlite3.connect('my_database.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT cmd_type_id FROM commands ORDER BY cmd_id DESC LIMIT 1")
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None and result[0] == cmd_type_id[2]
+import sqlite3
+
+def get_intent_type(intent_id):
+    conn = sqlite3.connect('my_database.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT intent FROM file_intent WHERE intent_id = ?", (intent_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+

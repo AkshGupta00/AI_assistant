@@ -48,10 +48,19 @@ while True and command != "goodbye":
     if command == "tell me a joke":
         joke()
     if is_basic_sys_command(command):
+        db.is_latest_cmd_type(1)
         db.cmd_push(command,1)
         process_basic_sys_command(command)
     if is_file_function_cmd(command):
-        db.cmd_push(command,2)
-        ff.file_management_cmd_execution(command,db.get_latest_cmd_id())
+        if db.is_latest_cmd_type(2):
+            db.cmd_push(command,2)
+            massage = ff.incomplete_file_cmd_exe(db.get_latest_cmd_id,command)
+            chotu.say(massage)
+            print(massage)
+        else:    
+            db.cmd_push(command,2)
+            massage = ff.file_management_cmd_execution(command,db.get_latest_cmd_id())
+            chotu.say(massage)
+            print(massage)
     
 chotu.say("Goodbye, I'm going to sleep now")
