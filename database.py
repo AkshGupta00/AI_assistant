@@ -77,11 +77,39 @@ def get_latest_cmd_id():
     conn.close()
     return result[0] if result else None
 
+def format_for_db(value):
+    """
+    Formats the input value for consistent database storage.
+
+    - Converts None to an empty string.
+    - Converts lists to comma-separated strings.
+    - Leaves other data types unchanged.
+
+    Parameters:
+    - value: The input value to be formatted.
+
+    Returns:
+    - The formatted value as a string.
+    """
+    if value is None:
+        return ''
+    elif isinstance(value, list):
+        return ', '.join(map(str, value))
+    else:
+        return str(value)
 
 #file cmd process database
 def filepush(cmd_id,intent,pro_comp,file_name = None,file_found = None,file_path = None,folders = None ,message = None,file_ext = None):
     # Connect to SQLite database 
     conn = sqlite3.connect('my_database.db')
+    intent = format_for_db(intent)
+    pro_comp = format_for_db(pro_comp)
+    file_name = format_for_db(file_name)
+    file_found = format_for_db(file_found)
+    file_path = format_for_db(file_path)
+    folders = format_for_db(folders)
+    message = format_for_db(message)
+    file_ext = format_for_db(file_ext)
     
     # Create a cursor object using the cursor() method
     cursor = conn.cursor()
@@ -111,8 +139,10 @@ def is_latest_cmd_type(cmd_type_id):
     cursor.execute("SELECT cmd_type_id FROM commands ORDER BY cmd_id DESC LIMIT 1")
     result = cursor.fetchone()
     conn.close()
-    return result is not None and result[0] == cmd_type_id[2]
-import sqlite3
+    if result[0] is None:
+        return None
+    return True if result[0] == cmd_type_id else False
+
 
 def get_intent_type(intent_id):
     conn = sqlite3.connect('my_database.db')

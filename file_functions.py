@@ -54,8 +54,31 @@ def extract_path(command):
 
 def extract_folder(text):
     """Extract possible folder names from user input."""
-    match = re.findall(r"from ([\w\\:/. ]+)", text)
+    match = re.findall(r"from ([\w\\:/. ]+)", text.lower())
     return match[0] if match else None
+
+
+import os
+
+
+def extract_file_extension(filename):
+    """
+    Extracts the file extension from a given filename.
+
+    Parameters:
+    - filename (str): The name of the file.
+
+    Returns:
+    - str: The file extension, including the dot (e.g., '.txt'). Returns an empty string if no extension is found.
+    """
+    _, file_extension = os.path.splitext(filename)
+    return file_extension
+
+
+# Example usage:
+filename = "example.txt"
+extension = extract_file_extension(filename)
+print(extension)  # Output: .txt
 
 
 def search_file(directory, filename):
@@ -63,8 +86,8 @@ def search_file(directory, filename):
     search_pattern = os.path.join(directory, "**", f"{filename}.*")
     matching_files = glob.glob(search_pattern, recursive=True)
     if matching_files:
-        return True,matching_files,f"files with matching name are:{matching_files}"
-    return False,matching_files,"no files with matching name are found"
+        return matching_files
+    return []
 
 
 def search_path(folder_name):
@@ -94,11 +117,16 @@ def search_path(folder_name):
         return os.path.expandvars(common_paths[matches[0]])
     return None
 
-
 def intent_detection(command):
-    """Extract the intent of the user from the user input"""
+    """Detect file-related intent only if file/folder context is present."""
     command = command.lower()
     doc = nlp(command)
+
+    # Only consider file-related intent if these keywords exist
+    file_context_keywords = ["file", "folder", "document", "directory", "txt", "pdf", "doc", "jpg", "mp4"]
+
+    if not any(word in command for word in file_context_keywords):
+        return None  # not a file-related command
 
     intents = {
         "open": [
@@ -122,13 +150,11 @@ def intent_detection(command):
         "storage": ["storage", "disk space", "free space", "disk usage"],
     }
 
-    # Check multi-word phrases
     for intent, phrases in intents.items():
         for phrase in phrases:
             if phrase in command:
                 return intent
 
-    # Check individual lemmatized words
     for token in doc:
         for intent, words in intents.items():
             if token.lemma_ in set(words):
@@ -260,7 +286,8 @@ def compress_file(folder_path, compressed_file_name):
 
     except Exception as e:
         return f"An error occurred: {e}"
-    
+
+
 def detect_file_type(text):
     text = text.lower()
     for file_type, keywords in ext.file_type_keywords.items():
@@ -268,6 +295,7 @@ def detect_file_type(text):
             if keyword in text:
                 return file_type
     return "text"
+
 
 def extract_file(compressed, output_folder):
     """extract '.zip' file to a output folder"""
@@ -300,14 +328,21 @@ def handle_open(result):
         return False, "Where would the file be located?", (1, 0, 0), None
 
     filename = result["file"][0]
+    file_ext = extract_file_extension(filename)
 
     # Use available paths or fallback to folders
-    search_locations = result["path"] if result["path"] else result["folder"]
+    search_locations = []
+    search_locations.append(
+        result["path"] if result["path"] else search_path(result["folder"])
+    )
     matches = []
     for location in search_locations:
         found = search_file(location, os.path.splitext(filename)[0])
         if found:
             matches.extend(found)
+    if file_ext and matches:
+        flag, message = file_open(search_locations[0] + "\\" + filename)
+        return flag, message, (1, 1, 1), None
 
     if not matches:
         return (
@@ -339,7 +374,7 @@ def handle_open(result):
         return False, f"No exact match found for '{filename}'.", (1, 1, 1), None
 
 
-def  handle_create(result):
+def handle_create(result):
     if not result["file"]:
         return False, "What would be the name of the file to create?", (0, 1, 1)
 
@@ -367,7 +402,7 @@ def handle_search(result):
             (0, 0, 1 if result["path"] else 0, 1 if result["folder"] else 0),
             None,
         )
-    flag,matched_file,message = search_file(result["path"], result["file"])
+    flag, matched_file, message = search_file(result["path"], result["file"])
     return (
         flag,
         message,
@@ -741,17 +776,19 @@ def file_management_cmd_execution(command, cmd_id):
             message,
         )
     elif intent == "create":
-        flag , message, db_input = handle_create(result)
+        flag, message, db_input = handle_create(result)
         db.filepush(
             cmd_id,
             3,
             flag,
             result["file"] if db_input[0] == 1 else None,
-            file_ext = ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt"),
-            file_path= result["path"] if db_input[1] == 1 else None,
-            file_folder = result["folder"] if db_input[2] == 1 else None,
-            message = message
-            )
+            file_ext=ext.extensions.get(
+                detect_file_type(result["raw_text"]).lower(), ".txt"
+            ),
+            file_path=result["path"] if db_input[1] == 1 else None,
+            folders=result["folder"] if db_input[2] == 1 else None,
+            message=message,
+        )
         return message
     elif intent == "rename":
         flag, message, db_input = handle_rename(result)
@@ -760,10 +797,14 @@ def file_management_cmd_execution(command, cmd_id):
             4,
             flag,
             result["file"] if db_input[0] == 1 else None,
-            file_ext = ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt") if db_input[1] == 1 else None,
-            file_path= result["path"] if db_input[2] == 1 else None,
-            file_folder = result["folder"] if db_input[3] == 1 else None,
-            message = message
+            file_ext=(
+                ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt")
+                if db_input[1] == 1
+                else None
+            ),
+            file_path=result["path"] if db_input[2] == 1 else None,
+            folder=result["folder"] if db_input[3] == 1 else None,
+            message=message,
         )
         return message
     elif intent == "move":
@@ -773,11 +814,15 @@ def file_management_cmd_execution(command, cmd_id):
             5,
             flag,
             result["file"] if db_input[0] == 1 else None,
-            file_ext = ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt") if db_input[1] == 1 else None,
-            file_path= result["path"] if db_input[2] == 1 else None,
-            file_folder = result["folder"] if db_input[3] == 1 else None,
-            message = message
-            )
+            file_ext=(
+                ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt")
+                if db_input[1] == 1
+                else None
+            ),
+            file_path=result["path"] if db_input[2] == 1 else None,
+            folder=result["folder"] if db_input[3] == 1 else None,
+            message=message,
+        )
         return message
     elif intent == "copy":
         flag, message, db_input = handle_copy(result)
@@ -786,11 +831,15 @@ def file_management_cmd_execution(command, cmd_id):
             6,
             flag,
             result["file"] if db_input[0] == 1 else None,
-            file_ext = ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt") if db_input[1] == 1 else None,
-            file_path= result["path"] if db_input[2] == 1 else None,
-            file_folder = result["folder"] if db_input[3] == 1 else None,
-            message = message
-            )
+            file_ext=(
+                ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt")
+                if db_input[1] == 1
+                else None
+            ),
+            file_path=result["path"] if db_input[2] == 1 else None,
+            folder=result["folder"] if db_input[3] == 1 else None,
+            message=message,
+        )
         return message
     elif intent == "delete":
         flag, message, db_input = handle_delete(result)
@@ -799,11 +848,15 @@ def file_management_cmd_execution(command, cmd_id):
             7,
             flag,
             result["file"] if db_input[0] == 1 else None,
-            file_ext = ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt") if db_input[1] == 1 else None,
-            file_path= result["path"] if db_input[2] == 1 else None,
-            file_folder = result["folder"] if db_input[3] == 1 else None,
-            message = message
-            )
+            file_ext=(
+                ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt")
+                if db_input[1] == 1
+                else None
+            ),
+            file_path=result["path"] if db_input[2] == 1 else None,
+            folder=result["folder"] if db_input[3] == 1 else None,
+            message=message,
+        )
         return message
     elif intent == "compress":
         flag, message, db_input = handle_compress(result)
@@ -812,11 +865,15 @@ def file_management_cmd_execution(command, cmd_id):
             8,
             flag,
             result["file"] if db_input[0] == 1 else None,
-            file_ext = ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt") if db_input[1] == 1 else None,
-            file_path= result["path"] if db_input[2] == 1 else None,
-            file_folder = result["folder"] if db_input[3] == 1 else None,
-            message = message
-            )
+            file_ext=(
+                ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt")
+                if db_input[1] == 1
+                else None
+            ),
+            file_path=result["path"] if db_input[2] == 1 else None,
+            folder=result["folder"] if db_input[3] == 1 else None,
+            message=message,
+        )
         return message
     elif intent == "extract":
         flag, message, db_input = handle_extract(result)
@@ -825,11 +882,15 @@ def file_management_cmd_execution(command, cmd_id):
             9,
             flag,
             result["file"] if db_input[0] == 1 else None,
-            file_ext = ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt") if db_input[1] == 1 else None,
-            file_path= result["path"] if db_input[2] == 1 else None,
-            file_folder = result["folder"] if db_input[3] == 1 else None,
-            message = message
-            )
+            file_ext=(
+                ext.extensions.get(detect_file_type(result["raw_text"]).lower(), ".txt")
+                if db_input[1] == 1
+                else None
+            ),
+            file_path=result["path"] if db_input[2] == 1 else None,
+            folder=result["folder"] if db_input[3] == 1 else None,
+            message=message,
+        )
         return message
     elif intent == "storage":
         flag, message, db_input = handle_storage(result)
@@ -841,15 +902,16 @@ def file_management_cmd_execution(command, cmd_id):
             None,
             result["path"] if db_input[2] == 1 else None,
             result["folder"] if db_input[3] == 1 else None,
-            message = message
-            )
+            message=message,
+        )
         return message
     else:
         return False
 
+
 def incomplete_file_cmd_exe(cmd_id, new_command):
     pre_data_list = db.check_pre_file(1)
-    
+
     pre_data = pre_data_list[0]  # Get the latest record
     if pre_data[8] == 1:
         return file_management_cmd_execution(new_command, cmd_id)
@@ -889,7 +951,7 @@ def incomplete_file_cmd_exe(cmd_id, new_command):
     print("Conflicting:", conflicting_fields)
 
     if not conflicting_fields:
-        new_command = generate_command_from_data(pre_data,new_result)
+        new_command = generate_command_from_data(pre_data, new_result)
         return file_management_cmd_execution(new_command, cmd_id)
 
     return file_management_cmd_execution(new_command, cmd_id)
@@ -929,3 +991,10 @@ def generate_command_from_data(pre_data, new_result):
         sentence = "check storage"
 
     return sentence
+
+db.cmd_push("open hello.txt from documents", 2)
+print(
+    file_management_cmd_execution(
+        "create  notepad", db.get_latest_cmd_id()
+    )
+)
