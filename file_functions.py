@@ -54,11 +54,9 @@ def extract_path(command):
 
 def extract_folder(text):
     """Extract possible folder names from user input."""
-    match = re.findall(r"from ([\w\\:/. ]+)", text.lower())
+    match = re.findall(r"(?:from|at) ([\w\\:/. ]+)", text.lower())
     return match[0] if match else None
 
-
-import os
 
 
 def extract_file_extension(filename):
@@ -200,12 +198,10 @@ def file_open(filepath):
         return False, f"An error occurred: {e}"
 
 
-def file_create(file_name, filepath):
-    """creates the file at the given location"""
-    file_path_absolute = filepath + "\\" + file_name
+def file_create(filepath):
     try:
-        file = open(file_path_absolute, "x")
-        return True, f"file created at {file_path_absolute}"
+        file = open(filepath, "x")
+        return True, f"file created at {filepath}"
     except FileExistsError as e:
         return False, f"An error occurred: {e}"
 
@@ -387,7 +383,7 @@ def handle_create(result):
         filename += ext
 
     # Use first path or folder
-    location = result["path"][0] if result["path"] else search_path(result["folder"][0])
+    location = result["path"][0] if result["path"] else search_path(result["folder"])
     file_path = os.path.join(location, filename)
 
     flag, message = file_create(file_path)

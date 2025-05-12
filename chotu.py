@@ -47,12 +47,23 @@ def is_open_system_command(command):
 def is_file_function_cmd(command):
     return ff.intent_detection(command) is not None
 
+def is_greating_cmd(command):
+    return True if "hello" or "hi" in command else False
+
 def process_command(command):
     print("command was:", command)
 
-    if command == "tell me a joke":
+    if command.lower() == "tell me a joke":
         joke()
-
+    elif is_greating_cmd(command):
+        chotu.say("Hello! How can I help you?")
+        message = "Hello! How can I help you?"
+    elif command.lower() == "who are you":
+        chotu.say("I am Chotu, your friendly AI assistant!")
+        message = "I am Chotu, your friendly AI assistant!"
+    elif command.lower() == "who is your creator":
+        chotu.say("I was created by Aksh Gupta as a project for his 6 samister!")
+        message = "I was created by Aksh Gupta as a project for his 6 samister!"
     elif is_basic_sys_command(command):
         if is_open_system_command(command):
             db.cmd_push(command, 1)
