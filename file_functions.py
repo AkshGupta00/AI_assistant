@@ -120,12 +120,6 @@ def intent_detection(command):
     command = command.lower()
     doc = nlp(command)
 
-    # Only consider file-related intent if these keywords exist
-    file_context_keywords = ["file", "folder", "document", "directory", "txt", "pdf", "doc", "jpg", "mp4"]
-
-    if not any(word in command for word in file_context_keywords):
-        return None  # not a file-related command
-
     intents = {
         "open": [
             "open",

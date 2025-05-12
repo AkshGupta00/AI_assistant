@@ -7,6 +7,8 @@ import file_functions as ff
 import tkinter as tk
 from tkinter import scrolledtext
 import threading
+from getweather import process_weather_cmd
+from todolist import process_todo_cmd
 
 
 # Load NLP model
@@ -48,7 +50,27 @@ def is_file_function_cmd(command):
     return ff.intent_detection(command) is not None
 
 def is_greating_cmd(command):
-    return True if "hello" or "hi" in command else False
+    if "hello" in command.lower() or "hi" in command.lower():
+        return True
+    return False
+
+def is_weather_cmd(command):
+    tokens = ["weather","temprature ","forecast","rain","sunny"]
+    if any(token in command.lower() for token in tokens):
+        return True
+    else:
+        return False
+def is_todo_cmd(cmd):
+    keywords = [
+        "add","add task","mark","mark done","done","task done","completed",
+        "show todo","show tasks",
+        "show all task","show all todo",
+    ]
+    for key in keywords:
+            key=key.replace(" ","")
+            if key in cmd.replace(" ",""):
+                return True
+    return False
 
 def process_command(command):
     print("command was:", command)
@@ -76,7 +98,12 @@ def process_command(command):
                 message = ff.file_management_cmd_execution(command, db.get_latest_cmd_id())
         chotu.say(message)
         print(message)
-
+    elif is_todo_cmd(command):
+        message,todo = process_todo_cmd(command)
+        chotu.say(message)
+        if todo != '' :
+            message = todo
+        
     elif is_file_function_cmd(command):
         db.cmd_push(command, 2)
         if db.is_latest_cmd_type(2):
@@ -85,6 +112,10 @@ def process_command(command):
             message = ff.file_management_cmd_execution(command, db.get_latest_cmd_id())
         chotu.say(message)
         print(message)
+    elif is_weather_cmd(command):
+        message,m = process_weather_cmd(command)
+        chotu.say(m)
+    
     else:
         chotu.say("Sorry, I didn't understand the command.")
     return message if 'message' in locals() else "Sorry, I didn't understand the command."
@@ -93,12 +124,16 @@ def process_command(command):
 # GUI App
 class ChatApp:
     def __init__(self, root, assistant: AI):
+        self.no_of_commands = 0
         self.root = root
         self.a = assistant
         self.root.title("Chotu - Voice/Text Assistant")
 
         self.chat_area = scrolledtext.ScrolledText(root, wrap=tk.WORD, state='disabled', width=60, height=20)
         self.chat_area.pack(padx=10, pady=10)
+
+        self.chat_area.tag_config("user_command", foreground="blue")
+        self.chat_area.tag_config("assistant_response", foreground="red")
 
         self.entry = tk.Entry(root, width=50)
         self.entry.pack(side=tk.LEFT, padx=(10, 5), pady=(0, 10))
@@ -110,11 +145,21 @@ class ChatApp:
         self.voice_button = tk.Button(root, text="🎤 Voice", command=self.handle_voice_command)
         self.voice_button.pack(side=tk.LEFT, padx=(5, 10), pady=(0, 10))
 
-    def display_message(self, sender, message):
+    def display_message(self, sender, message, colour="black"):
+        """Displays a message in the chat area with the sender and color specified."""
         self.chat_area.config(state='normal')
-        self.chat_area.insert(tk.END, f"{sender}: {message}\n")
+        
+        if sender == "You":
+            self.chat_area.insert(tk.END, "\n" + "-"*50 + "\n", "separator") if self.no_of_commands >0 else None
+            self.chat_area.insert(tk.END, f"{sender}: ", "user_command")  
+        else:
+            self.chat_area.insert(tk.END, f"{sender}: ","assistant_response")
+
+        self.chat_area.insert(tk.END, f"{message}\n", colour) 
         self.chat_area.config(state='disabled')
         self.chat_area.yview(tk.END)
+
+    
 
     def handle_text_command(self, event=None):
         command = self.entry.get()
@@ -122,12 +167,12 @@ class ChatApp:
             self.entry.delete(0, tk.END)
             self.display_message("You", command)
 
-            # ⬇️ Process the command in a thread to prevent UI freeze
             threading.Thread(target=self.process_and_respond, args=(command,)).start()
 
     def process_and_respond(self, command):
         message = process_command(command)
         self.display_message("Chotu", message)
+        self.no_of_commands +=1
 
     def handle_voice_command(self):
         self.display_message("You", "[Listening...]")

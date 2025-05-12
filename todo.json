@@ -1,0 +1,32 @@
+[
+    {
+        "S.No": 1,
+        "task": "buy milk",
+        "date": "2025-05-13",
+        "completed": false
+    },
+    {
+        "S.No": 2,
+        "task": "complete major project",
+        "date": "2025-05-13",
+        "completed": true
+    },
+    {
+        "S.No": 3,
+        "task": "complete major project",
+        "date": "2025-05-13",
+        "completed": false
+    },
+    {
+        "S.No": 4,
+        "task": "task need sleeo",
+        "date": "2025-05-13",
+        "completed": false
+    },
+    {
+        "S.No": 5,
+        "task": "need nap",
+        "date": "2025-05-13",
+        "completed": false
+    }
+]
