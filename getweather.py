@@ -131,7 +131,7 @@ def process_weather_cmd(command):
     cords = g.latlng  # [latitude, longitude]
     
     if not cords:
-        return "Could not determine your location.","Could not determine your location."
+        return "Could not determine your location. you can check it by going out.","Could not determine your location.you can check it by going out."
     
     latitude, longitude = cords[0], cords[1]
 
